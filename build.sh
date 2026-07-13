@@ -82,6 +82,7 @@ HEADER
 # ==================================================================
 emit_file "merge-gitconfig" "$ROOT/lib/merge-gitconfig.sh"
 emit_file "merge-gitignore" "$ROOT/lib/merge-gitignore.sh"
+emit_file "merge-bashrc" "$ROOT/lib/merge-bashrc.sh"
 
 # ==================================================================
 # 3. Main orchestration
@@ -136,6 +137,17 @@ else
 	gitignore_target="${gitignore_target/#\~/$HOME}"
 fi
 merge_gitignore "$TMPDIR/.gitignore_global" "$gitignore_target"
+echo ""
+
+# ------------------------------------------------------------------
+# .bashrc  —  managed-block merge (see lib/merge-bashrc.sh)
+# ------------------------------------------------------------------
+blue "◆ .bashrc"
+if [ -f "$TMPDIR/.bashrc" ]; then
+	merge_bashrc "$TMPDIR/.bashrc" "$HOME/.bashrc"
+else
+	dim "  (no .bashrc in repo — skipping)"
+fi
 echo ""
 
 # ------------------------------------------------------------------

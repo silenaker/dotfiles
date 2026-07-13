@@ -14,6 +14,24 @@ if [ -f "$DOTFILES_DIR/.gitignore_global" ]; then
 fi
 
 # ------------------------------------------------------------------
+# .bashrc
+# ------------------------------------------------------------------
+if [ -f "$DOTFILES_DIR/.bashrc" ]; then
+	# Guard against self-referencing symlink when DOTFILES_DIR == HOME.
+	if [ "$DOTFILES_DIR" = "$HOME" ]; then
+		echo "  WARNING: DOTFILES_DIR equals HOME, skipping .bashrc symlink" >&2
+	else
+		# Back up any pre-existing regular file before replacing it.
+		if [ -f "$HOME/.bashrc" ] && [ ! -L "$HOME/.bashrc" ]; then
+			cp "$HOME/.bashrc" "$HOME/.bashrc.bak"
+			echo "  (backed up existing .bashrc to .bashrc.bak)"
+		fi
+		ln -sf "$DOTFILES_DIR/.bashrc" "$HOME/.bashrc"
+		echo "✓ .bashrc"
+	fi
+fi
+
+# ------------------------------------------------------------------
 # .gitconfig
 #
 # DevContainers often pre-populate $HOME/.gitconfig with
