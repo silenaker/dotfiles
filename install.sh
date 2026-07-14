@@ -49,7 +49,7 @@ if [ -f "$DOTFILES_DIR/.gitconfig" ]; then
 			echo "	path = $DOTFILES_DIR/.gitconfig"
 			echo ""
 			cat "$HOME/.gitconfig"
-		} > "$HOME/.gitconfig.tmp"
+		} >"$HOME/.gitconfig.tmp"
 		mv "$HOME/.gitconfig.tmp" "$HOME/.gitconfig"
 	else
 		ln -sf "$DOTFILES_DIR/.gitconfig" "$HOME/.gitconfig"

@@ -34,6 +34,7 @@ echo ""
 run_suite "merge-gitignore" test/test-merge-gitignore.sh
 run_suite "merge-gitconfig" test/test-merge-gitconfig.sh
 run_suite "merge-bashrc" test/test-merge-bashrc.sh
+run_suite "fztype" test/test-fztype.sh
 run_suite "bootstrap" test/test-bootstrap.sh
 echo ""
 

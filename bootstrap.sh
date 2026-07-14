@@ -227,8 +227,8 @@ merge_bashrc() {
 	# because /dev/fd redirection is unreliable on some platforms (WSL).
 	local dst_norm
 	dst_norm="$(sed 's/\r$//' "$dst")"
-	if grep -qxF "$start_marker" <<<"$dst_norm" 2>/dev/null && \
-	   grep -qxF "$end_marker" <<<"$dst_norm" 2>/dev/null; then
+	if grep -qxF "$start_marker" <<<"$dst_norm" 2>/dev/null &&
+		grep -qxF "$end_marker" <<<"$dst_norm" 2>/dev/null; then
 		local start_ln end_ln
 		start_ln="$(grep -nxF "$start_marker" <<<"$dst_norm" | head -1 | cut -d: -f1)"
 		end_ln="$(grep -nxF "$end_marker" <<<"$dst_norm" | head -1 | cut -d: -f1)"

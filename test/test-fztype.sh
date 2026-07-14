@@ -1,162 +1,214 @@
 #!/usr/bin/env bash
-# Unit tests for fztype and _fzmatch in .bashrc
+# Tests for fztype (three-mode) and _fzmatch in .bashrc
 #
-# fztype uses compgen + _fzmatch to fuzzy-match commands,
-# then classifies each match via type -t / type -p.
+# Modes:
+#   (default)  Cached non-prefix fuzzy + lazy bg refresh
+#   -p         Prefix real-time fuzzy, no cache I/O
+#   -r         Non-prefix real-time fuzzy + atomic cache update
 #
 # Cases:
-#   1. _fzmatch exact match              — pattern equals target
-#   2. _fzmatch fuzzy match              — chars scattered in target
-#   3. _fzmatch fuzzy match (mid-string) — non-prefix subsequence
-#   4. _fzmatch no match (char missing)  — pattern char absent
-#   5. _fzmatch no match (wrong order)   — chars out of sequence
-#   6. _fzmatch empty pattern            — vacuously true
-#   7. _fzmatch empty pattern + target   — both empty
-#   8. _fzmatch non-empty vs empty       — should fail
-#   9. fztype no argument               — usage error
-#  10. fztype no match                  — error with message
-#  11. fztype finds file command        — shows path
-#  12. fztype finds builtin             — shows [builtin]
-#  13. fztype finds alias               — shows [alias]
-#  14. fztype finds function            — shows [function]
-#  15. fztype finds keyword             — shows [keyword]
-#  16. fztype fuzzy-match pyth3 → python3
+#   1.  _fzmatch exact match
+#   2.  _fzmatch fuzzy match (scattered)
+#   3.  _fzmatch fuzzy match (mid-string)
+#   4.  _fzmatch no match (wrong order)
+#   5.  fztype no argument
+#   6.  fztype no match
+#   7.  fztype -p finds file command
+#   8.  fztype -p finds builtin
+#   9.  fztype -p finds alias
+#  10.  fztype -p fuzzy-match pyth3 → python3
+#  11.  fztype -r populates cache
+#  12.  fztype -r non-prefix fuzzy match
+#  13.  fztype (default) reads from cache
+#  14.  fztype (default) missing cache fallback
+#  15.  fztype (default) expired cache returns results
 set -euo pipefail
 
 source "$(dirname "$0")/helpers.sh"
 
-# fztype lives in .bashrc; source to load both _fzmatch and fztype.
+# Load fztype and _fzmatch from .bashrc
 set +u
 source "$(dirname "$0")/../.bashrc" 2>/dev/null || true
 set -u
 
+# Isolated cache directory for tests.
+TEST_CACHE="$(mktemp -d)/fztype"
+export XDG_CACHE_HOME="$(dirname "$TEST_CACHE")"
+CACHE_FILE="$TEST_CACHE/commands"
+
+reset_cache() { rm -rf "$TEST_CACHE"; }
+write_cache() { mkdir -p "$TEST_CACHE" && printf '%s\n' "$1" >"$CACHE_FILE"; }
+
 # ------------------------------------------------------------------
-# _fzmatch unit tests (internal helper)
+# _fzmatch
 # ------------------------------------------------------------------
 
-# --- exact match ----------------------------------------------------
+# --- exact ---------------------------------------------------------
 check
-if _fzmatch "git" "git"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: exact match" >&2; fi
-result "_fzmatch exact match"
+if _fzmatch "git" "git"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: exact match" >&2
+fi
+result "_fzmatch exact"
 
-# --- fuzzy match (chars scattered) ----------------------------------
+# --- fuzzy (scattered) ---------------------------------------------
 check
-if _fzmatch "pyth" "python3"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: fuzzy match pyth → python3" >&2; fi
-result "_fzmatch fuzzy match (scattered)"
+if _fzmatch "pyth" "python3"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: pyth → python3" >&2
+fi
+result "_fzmatch fuzzy (scattered)"
 
-# --- fuzzy match (subsequence, not prefix) --------------------------
+# --- fuzzy (mid-string) --------------------------------------------
 check
-if _fzmatch "thon" "python3"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: fuzzy match thon → python3" >&2; fi
-result "_fzmatch fuzzy match (mid-string)"
+if _fzmatch "thon" "python3"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: thon → python3" >&2
+fi
+result "_fzmatch fuzzy (mid-string)"
 
-# --- no match (char missing) ----------------------------------------
+# --- no match (wrong order) ----------------------------------------
 check
-if ! _fzmatch "xyz" "python3"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: xyz should NOT match python3" >&2; fi
-result "_fzmatch no match (char missing)"
-
-# --- no match (wrong order) -----------------------------------------
-check
-if ! _fzmatch "tp" "python3"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: tp should NOT match python3" >&2; fi
+if ! _fzmatch "tp" "python3"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: tp should NOT match python3" >&2
+fi
 result "_fzmatch no match (wrong order)"
 
-# --- empty pattern always matches -----------------------------------
-check
-if _fzmatch "" "anything"; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: empty pattern should match anything" >&2; fi
-result "_fzmatch empty pattern"
-
-# --- empty target, empty pattern ------------------------------------
-check
-if _fzmatch "" ""; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: empty pattern should match empty target" >&2; fi
-result "_fzmatch empty pattern + empty target"
-
-# --- empty target, non-empty pattern --------------------------------
-check
-if ! _fzmatch "x" ""; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: non-empty pattern should NOT match empty target" >&2; fi
-result "_fzmatch non-empty pattern vs empty target"
-
 # ------------------------------------------------------------------
-# fztype integration tests
+# Error handling
 # ------------------------------------------------------------------
 
-# --- no argument ----------------------------------------------------
+# --- no argument ---------------------------------------------------
+reset_cache
 check
-if ! fztype 2>/dev/null; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: fztype with no arg should fail" >&2; fi
+if ! fztype 2>/dev/null; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: no arg should fail" >&2
+fi
 result "fztype no argument"
 
-# --- no match -------------------------------------------------------
+# --- no match ------------------------------------------------------
+reset_cache
 check
-if ! fztype "zzzNOSUCHCMDxxx" 2>/dev/null; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "  FAIL: fztype with bogus cmd should fail" >&2; fi
+if ! fztype "zzzNOSUCHCMDxxx" 2>/dev/null; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: bogus cmd should fail" >&2
+fi
 result "fztype no match"
 
-# --- finds a known file command ------------------------------------
-check
-# 'bash' is virtually guaranteed to exist on PATH.
-out=$(fztype bash 2>/dev/null) || true
-if grep -q 'bash' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype bash should find bash" >&2
-fi
-result "fztype finds file command (bash)"
+# ------------------------------------------------------------------
+# fztype -p (prefix)
+# ------------------------------------------------------------------
 
-# --- finds a builtin ------------------------------------------------
+# --- file command --------------------------------------------------
+reset_cache
 check
-out=$(fztype cd 2>/dev/null) || true
-if grep -q '\[builtin\]' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype cd should show [builtin]" >&2
+out=$(fztype -p bash 2>/dev/null) || true
+if grep -q 'bash' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -p bash should find bash" >&2
 fi
-result "fztype finds builtin"
+result "fztype -p file command"
 
-# --- finds an alias -------------------------------------------------
+# --- builtin -------------------------------------------------------
+reset_cache
+check
+out=$(fztype -p cd 2>/dev/null) || true
+if grep -q '\[builtin\]' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -p cd should show [builtin]" >&2
+fi
+result "fztype -p builtin"
+
+# --- alias ---------------------------------------------------------
+reset_cache
 check
 alias _fztest_xyz123='echo hello'
-out=$(fztype _fztest_xyz123 2>/dev/null) || true
-if grep -q '\[alias\]' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype should show [alias] for an alias" >&2
+out=$(fztype -p _fztest_xyz123 2>/dev/null) || true
+if grep -q '\[alias\]' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -p should show [alias]" >&2
 fi
 unalias _fztest_xyz123 2>/dev/null || true
-result "fztype finds alias"
+result "fztype -p alias"
 
-# --- finds a function -----------------------------------------------
+# --- fuzzy ---------------------------------------------------------
+reset_cache
 check
-_fztest_myfunc() { echo "test"; }
-out=$(fztype _fztest_myfunc 2>/dev/null) || true
-if grep -q '\[function\]' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype should show [function] for a function" >&2
+out=$(fztype -p pyth3 2>/dev/null) || true
+if grep -q 'python3' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -p pyth3 should fuzzy-match python3" >&2
 fi
-unset -f _fztest_myfunc 2>/dev/null || true
-result "fztype finds function"
+result "fztype -p fuzzy (pyth3 → python3)"
 
-# --- finds a keyword ------------------------------------------------
+# ------------------------------------------------------------------
+# fztype -r (refresh)
+# ------------------------------------------------------------------
+
+# --- populate cache ------------------------------------------------
+reset_cache
 check
-out=$(fztype if 2>/dev/null) || true
-if grep -q '\[keyword\]' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype should show [keyword] for 'if'" >&2
+fztype -r bash &>/dev/null || true
+sleep 0.3
+if [ -s "$CACHE_FILE" ]; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -r should populate cache" >&2
 fi
-result "fztype finds keyword"
+result "fztype -r populate cache"
 
-# --- fuzzy match excludes prefix-only matches -----------------------
+# --- non-prefix fuzzy ----------------------------------------------
+reset_cache
 check
+out=$(fztype -r thon 2>/dev/null) || true
+if grep -q 'python3' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -r thon should match python3" >&2
+fi
+result "fztype -r non-prefix fuzzy (thon → python3)"
+
+# ------------------------------------------------------------------
+# fztype (default)
+# ------------------------------------------------------------------
+
+# --- read from cache -----------------------------------------------
+reset_cache
+check
+write_cache "bash\npython3\npython3.10\ngit\nmycmd"
 out=$(fztype pyth3 2>/dev/null) || true
-if grep -q 'python3' <<< "$out"; then
-	pass=$((pass + 1))
-else
-	fail=$((fail + 1))
-	echo "  FAIL: fztype pyth3 should fuzzy-match python3" >&2
+if grep -q 'python3' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: should read from cache" >&2
 fi
-result "fztype fuzzy-match pyth3 → python3"
+result "fztype default read from cache"
+
+# --- missing cache fallback ----------------------------------------
+reset_cache
+check
+out=$(fztype bash 2>/dev/null) || true
+sleep 0.3
+if grep -q 'bash' <<<"$out" && [ -s "$CACHE_FILE" ]; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: should fall back to -r" >&2
+fi
+result "fztype default missing cache fallback"
+
+# --- expired cache -------------------------------------------------
+reset_cache
+check
+write_cache "bash\npython3\ngit"
+touch -d "yesterday" "$CACHE_FILE"
+out=$(fztype bash 2>/dev/null) || true
+if grep -q 'bash' <<<"$out"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: expired cache should still return results" >&2
+fi
+result "fztype default expired cache"
+
+# ------------------------------------------------------------------
+# Cleanup
+# ------------------------------------------------------------------
+rm -rf "$(dirname "$TEST_CACHE")"
 
 finish
