@@ -80,6 +80,7 @@ HEADER
 # ==================================================================
 # 2. Lib modules (merge logic)
 # ==================================================================
+emit_file "constants" "$ROOT/lib/constants.sh"
 emit_file "merge-gitconfig" "$ROOT/lib/merge-gitconfig.sh"
 emit_file "merge-gitignore" "$ROOT/lib/merge-gitignore.sh"
 emit_file "merge-bashrc" "$ROOT/lib/merge-bashrc.sh"

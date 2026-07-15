@@ -19,6 +19,16 @@ yellow() { printf '\033[0;33m%s\033[0m\n' "$*"; }
 blue() { printf '\033[0;34m%s\033[0m\n' "$*"; }
 dim() { printf '\033[2m%s\033[0m\n' "$*"; }
 
+# Shared constants for dotfiles merge modules and tests.
+#
+# This file is sourced (not executed).  It has no shebang so that
+# build.sh can inline it directly into bootstrap.sh via emit_file,
+# where it runs as top-level code before the merge functions.
+
+# --- .bashrc managed-block markers ---
+BASH_MARKER_START='# >>> dotfiles .bashrc >>>'
+BASH_MARKER_END='# <<< dotfiles .bashrc <<<'
+
 # merge_gitconfig <src>
 #
 # ── Algorithm ──
@@ -159,11 +169,11 @@ merge_gitignore() {
 #
 # ── Algorithm ──
 #
-#   Managed-block merge with sentinel markers:
+#   Managed-block merge with sentinel markers (see lib/constants.sh):
 #
-#       # >>> dotfiles .bashrc >>>
+#       $BASH_MARKER_START
 #       ... managed content from repo ...
-#       # <<< dotfiles .bashrc <<<
+#       $BASH_MARKER_END
 #
 #   1. If <dst> does not exist:
 #        Copy <src> to <dst> as-is (first-install path).
@@ -188,8 +198,6 @@ merge_gitignore() {
 # Returns: 0 on success, 1 if <src> is missing.
 merge_bashrc() {
 	local src="$1" dst="$2"
-	local start_marker="# >>> dotfiles .bashrc >>>"
-	local end_marker="# <<< dotfiles .bashrc <<<"
 
 	if [ ! -f "$src" ]; then
 		echo "  ERROR: source file not found: $src" >&2
@@ -205,9 +213,9 @@ merge_bashrc() {
 	# managed block and enter the replace path (not the append path).
 	if [ ! -f "$dst" ]; then
 		{
-			printf '%s\n' "$start_marker"
+			printf '%s\n' "$BASH_MARKER_START"
 			printf '%s\n' "$src_content"
-			printf '%s\n' "$end_marker"
+			printf '%s\n' "$BASH_MARKER_END"
 		} >"$dst"
 		green "  + .bashrc (created)"
 		local added=0 line
@@ -227,11 +235,11 @@ merge_bashrc() {
 	# because /dev/fd redirection is unreliable on some platforms (WSL).
 	local dst_norm
 	dst_norm="$(sed 's/\r$//' "$dst")"
-	if grep -qxF "$start_marker" <<<"$dst_norm" 2>/dev/null &&
-		grep -qxF "$end_marker" <<<"$dst_norm" 2>/dev/null; then
+	if grep -qxF "$BASH_MARKER_START" <<<"$dst_norm" 2>/dev/null &&
+		grep -qxF "$BASH_MARKER_END" <<<"$dst_norm" 2>/dev/null; then
 		local start_ln end_ln
-		start_ln="$(grep -nxF "$start_marker" <<<"$dst_norm" | head -1 | cut -d: -f1)"
-		end_ln="$(grep -nxF "$end_marker" <<<"$dst_norm" | head -1 | cut -d: -f1)"
+		start_ln="$(grep -nxF "$BASH_MARKER_START" <<<"$dst_norm" | head -1 | cut -d: -f1)"
+		end_ln="$(grep -nxF "$BASH_MARKER_END" <<<"$dst_norm" | head -1 | cut -d: -f1)"
 
 		if [ -n "$start_ln" ] && [ -n "$end_ln" ] && [ "$start_ln" -lt "$end_ln" ]; then
 			# Extract current block content (between markers, exclusive).
@@ -249,9 +257,9 @@ merge_bashrc() {
 			# LF-only output (prevents mixed line endings).
 			{
 				head -n $((start_ln - 1)) "$dst" | sed 's/\r$//'
-				printf '%s\n' "$start_marker"
+				printf '%s\n' "$BASH_MARKER_START"
 				printf '%s\n' "$src_content"
-				printf '%s\n' "$end_marker"
+				printf '%s\n' "$BASH_MARKER_END"
 				tail -n +$((end_ln + 1)) "$dst" | sed 's/\r$//'
 			} >"${dst}.tmp"
 			mv "${dst}.tmp" "$dst"
@@ -263,9 +271,9 @@ merge_bashrc() {
 	# ── dst exists, no (valid) markers: append managed block ──
 	{
 		cat "$dst"
-		printf '\n%s\n' "$start_marker"
+		printf '\n%s\n' "$BASH_MARKER_START"
 		printf '%s\n' "$src_content"
-		printf '%s\n' "$end_marker"
+		printf '%s\n' "$BASH_MARKER_END"
 	} >"${dst}.tmp"
 	mv "${dst}.tmp" "$dst"
 	green "  + .bashrc block appended"

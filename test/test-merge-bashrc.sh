@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Unit tests for lib/merge-bashrc.sh
 #
-# merge_bashrc merges .bashrc using managed-block markers:
-#   # >>> dotfiles .bashrc >>>
-#   ... managed content ...
-#   # <<< dotfiles .bashrc <<<
+# merge_bashrc merges .bashrc using managed-block markers
+# (BASH_MARKER_START / BASH_MARKER_END from lib/constants.sh).
 #
 # Cases:
 #   1. src missing                    — error path
@@ -18,6 +16,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/helpers.sh"
+source "$(dirname "$0")/../lib/constants.sh"
 
 # ------------------------------------------------------------------
 # Stub helpers
@@ -84,14 +83,14 @@ printf 'export MY_VAR=42\n' >"$WORK/dst"
 reset_calls
 merge_bashrc "$WORK/src" "$WORK/dst"
 assert_file_contains "$WORK/dst" "export MY_VAR=42"
-assert_file_contains "$WORK/dst" "# >>> dotfiles .bashrc >>>"
+assert_file_contains "$WORK/dst" "$BASH_MARKER_START"
 assert_file_contains "$WORK/dst" "alias ll='ls -alF'"
 assert_file_contains "$WORK/dst" "alias la='ls -A'"
-assert_file_contains "$WORK/dst" "# <<< dotfiles .bashrc <<<"
+assert_file_contains "$WORK/dst" "$BASH_MARKER_END"
 assert_green_contains "  + .bashrc block appended"
 # User line comes before the block
 user_ln="$(grep -n 'export MY_VAR=42' "$WORK/dst" | head -1 | cut -d: -f1)"
-marker_ln="$(grep -n '# >>> dotfiles .bashrc >>>' "$WORK/dst" | head -1 | cut -d: -f1)"
+marker_ln="$(grep -n "$BASH_MARKER_START" "$WORK/dst" | head -1 | cut -d: -f1)"
 if [ -n "$user_ln" ] && [ -n "$marker_ln" ]; then
 	if [ "$user_ln" -lt "$marker_ln" ]; then
 		pass=$((pass + 1))
@@ -115,9 +114,9 @@ alias la='ls -A'
 EOF
 {
 	printf 'export MY_VAR=42\n\n'
-	printf '# >>> dotfiles .bashrc >>>\n'
+	printf '%s\n' "$BASH_MARKER_START"
 	printf "alias ll='ls -alF'\nalias la='ls -A'\n"
-	printf '# <<< dotfiles .bashrc <<<\n'
+	printf '%s\n' "$BASH_MARKER_END"
 } >"$WORK/dst"
 reset_calls
 merge_bashrc "$WORK/src" "$WORK/dst"
@@ -137,9 +136,9 @@ alias grep='grep --color=auto'
 EOF
 {
 	printf 'export MY_VAR=42\n\n'
-	printf '# >>> dotfiles .bashrc >>>\n'
+	printf '%s\n' "$BASH_MARKER_START"
 	printf "alias ll='ls -alF'\nalias la='ls -A'\n"
-	printf '# <<< dotfiles .bashrc <<<\n'
+	printf '%s\n' "$BASH_MARKER_END"
 } >"$WORK/dst"
 reset_calls
 merge_bashrc "$WORK/src" "$WORK/dst"
@@ -150,7 +149,7 @@ assert_green_contains "  + .bashrc block updated"
 # But user content should remain
 assert_file_contains "$WORK/dst" "export MY_VAR=42"
 # Start marker appears exactly once
-assert_unique "$WORK/dst" "# >>> dotfiles .bashrc >>>"
+assert_unique "$WORK/dst" "$BASH_MARKER_START"
 result "dst has markers, content diff"
 
 # --- user content before and after ---------------------------------
@@ -163,9 +162,9 @@ alias ..='cd ..'
 EOF
 {
 	printf 'export HELLO=world\n\n'
-	printf '# >>> dotfiles .bashrc >>>\n'
+	printf '%s\n' "$BASH_MARKER_START"
 	printf "alias ll='ls -alF'\n"
-	printf '# <<< dotfiles .bashrc <<<\n'
+	printf '%s\n' "$BASH_MARKER_END"
 	printf '\nexport GOODBYE=farewell\n'
 } >"$WORK/dst"
 reset_calls
@@ -176,8 +175,8 @@ assert_file_contains "$WORK/dst" "alias ..='cd ..'"
 assert_green_contains "  + .bashrc block updated"
 # Verify ordering: HELLO before markers, GOODBYE after
 hello_ln="$(grep -n 'export HELLO=world' "$WORK/dst" | head -1 | cut -d: -f1)"
-marker_start_ln="$(grep -n '# >>> dotfiles .bashrc >>>' "$WORK/dst" | head -1 | cut -d: -f1)"
-marker_end_ln="$(grep -n '# <<< dotfiles .bashrc <<<' "$WORK/dst" | head -1 | cut -d: -f1)"
+marker_start_ln="$(grep -n "$BASH_MARKER_START" "$WORK/dst" | head -1 | cut -d: -f1)"
+marker_end_ln="$(grep -n "$BASH_MARKER_END" "$WORK/dst" | head -1 | cut -d: -f1)"
 goodbye_ln="$(grep -n 'export GOODBYE=farewell' "$WORK/dst" | head -1 | cut -d: -f1)"
 if [ "$hello_ln" -lt "$marker_start_ln" ] && [ "$marker_end_ln" -lt "$goodbye_ln" ]; then
 	pass=$((pass + 1))
@@ -212,9 +211,9 @@ alias la='ls -A'
 EOF
 {
 	printf 'export MY_VAR=42\n\n'
-	printf '# >>> dotfiles .bashrc >>>\n'
+	printf '%s\n' "$BASH_MARKER_START"
 	printf "alias ll='ls -alF'\nalias la='ls -A'\n"
-	printf '# <<< dotfiles .bashrc <<<\n'
+	printf '%s\n' "$BASH_MARKER_END"
 } >"$WORK/dst"
 reset_calls
 merge_bashrc "$WORK/src" "$WORK/dst" >/dev/null

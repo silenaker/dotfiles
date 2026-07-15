@@ -10,6 +10,7 @@ BOOTSTRAP="$ROOT/bootstrap.sh"
 REPO_URL="file://$ROOT/.git"
 
 source "$(dirname "$0")/helpers.sh"
+source "$(dirname "$0")/../lib/constants.sh"
 
 # ------------------------------------------------------------------
 if [ ! -x "$BOOTSTRAP" ]; then
@@ -65,9 +66,9 @@ assert_file_contains "$ignore_path_abs" "_bmad*"
 assert_file_contains "$ignore_path_abs" ".claude"
 assert_no_cr "$ignore_path_abs"
 assert_file_contains "$HOME/.bashrc" "export MY_CUSTOM=keep-me"
-assert_file_contains "$HOME/.bashrc" "# >>> dotfiles .bashrc >>>"
+assert_file_contains "$HOME/.bashrc" "$BASH_MARKER_START"
 assert_file_contains "$HOME/.bashrc" "HISTSIZE=10000"
-assert_file_contains "$HOME/.bashrc" "# <<< dotfiles .bashrc <<<"
+assert_file_contains "$HOME/.bashrc" "$BASH_MARKER_END"
 assert_no_cr "$HOME/.bashrc"
 rm -rf "$TESTHOME"
 result "merge with existing dotfiles"
