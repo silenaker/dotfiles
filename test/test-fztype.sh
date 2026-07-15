@@ -207,6 +207,59 @@ fi
 result "fztype default expired cache"
 
 # ------------------------------------------------------------------
+# fztype -t (type filter)
+# ------------------------------------------------------------------
+
+# --- type filter alias ----------------------------------------------
+reset_cache
+check
+alias _fztest_foo42='echo bar'
+out=$(fztype -t alias _fztest 2>/dev/null) || true
+if grep -q '\[alias\]' <<<"$out" && ! grep -q '\[builtin\]' <<<"$out"; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+    echo "  FAIL: -t alias should only show aliases" >&2
+fi
+unalias _fztest_foo42 2>/dev/null || true
+result "fztype -t alias"
+
+# --- type filter builtin with -p ------------------------------------
+reset_cache
+check
+out=$(fztype -p -t builtin cd 2>/dev/null) || true
+if grep -q 'cd' <<<"$out" && grep -q '\[builtin\]' <<<"$out"; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+    echo "  FAIL: -p -t builtin cd should find cd [builtin]" >&2
+fi
+result "fztype -p -t builtin"
+
+# --- type filter invalid type ---------------------------------------
+reset_cache
+check
+if ! fztype -t bogus bash 2>/dev/null; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+    echo "  FAIL: -t bogus should fail" >&2
+fi
+result "fztype -t invalid type"
+
+# --- type filter file with fuzzy match ------------------------------
+reset_cache
+check
+out=$(fztype -t file pyth3 2>/dev/null) || true
+if grep -q 'python3' <<<"$out" && ! grep -q '\[alias\]' <<<"$out"; then
+    pass=$((pass + 1))
+else
+    fail=$((fail + 1))
+    echo "  FAIL: -t file pyth3 should match python3 as file type" >&2
+fi
+result "fztype -t file fuzzy"
+
+# ------------------------------------------------------------------
 # Cleanup
 # ------------------------------------------------------------------
 rm -rf "$(dirname "$TEST_CACHE")"

@@ -20,6 +20,18 @@ shopt -s dirspell
 shopt -s autocd
 
 # ------------------------------------------------------------------
+# PATH
+# ------------------------------------------------------------------
+case ":${PATH}:" in
+*:"$HOME/.local/bin":*)
+	;;
+*)
+	# Prepending path in case a system-installed binary needs to be overridden
+	export PATH="$HOME/.local/bin:$PATH"
+	;;
+esac
+
+# ------------------------------------------------------------------
 # Aliases
 # ------------------------------------------------------------------
 alias ll='ls -alF'
@@ -64,24 +76,34 @@ _fzfilter() {
 
 # _fzcache_write -- atomically write $1 to the command cache in background.
 _fzcache_write() {
-	(nohup bash -c '
+	(
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
-		mkdir -p "$d" 2>/dev/null || true
-		printf "%s\n" "$1" > "$d/commands.tmp" && mv "$d/commands.tmp" "$d/commands"
-	' _ "$1" &>/dev/null &) &>/dev/null
+		mkdir -p "$d"
+		(
+			set -e
+			flock -n 3
+			printf "%s\n" "$1" >"$d/commands.tmp"
+			mv "$d/commands.tmp" "$d/commands"
+		) 3>"$d/.lock" &>/dev/null &
+	) &>/dev/null
 }
 
 # _fzcache_refresh -- regenerate the command cache from compgen in background.
 _fzcache_refresh() {
-	(nohup bash -c '
+	(
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
-		mkdir -p "$d" 2>/dev/null || true
-		compgen -c | sort -u > "$d/commands.tmp" && mv "$d/commands.tmp" "$d/commands"
-	' &>/dev/null &) &>/dev/null
+		mkdir -p "$d"
+		(
+			set -e
+			flock -n 3
+			compgen -c | sort -u >"$d/commands.tmp"
+			mv "$d/commands.tmp" "$d/commands"
+		) 3>"$d/.lock" &>/dev/null &
+	) &>/dev/null
 }
 
 # fztype -- fuzzy command lookup.
-# Usage: fztype [-p|--prefix] [-r|--refresh] <command>
+# Usage: fztype [-p|--prefix] [-r|--refresh] [-t|--type <type>] <command>
 #
 # Modes:
 #   (default)  Cached non-prefix fuzzy: reads from ~/.cache/fztype/commands,
@@ -91,10 +113,12 @@ _fzcache_refresh() {
 #              Same matching strategy as the original fztype.
 #   -r         Non-prefix real-time fuzzy: compgen -c (all commands), fuzzy
 #              filter, then atomically update cache in background.
+#   -t         Filter output by command type: alias, function, builtin,
+#              keyword, or file.
 #
 # All modes fuzzy-filter via _fzmatch (subsequence, order-preserving).
 fztype() {
-	local mode="default" term=""
+	local mode="default" term="" type_filter=""
 
 	# Parse flags
 	while [[ "${1:-}" == -* ]]; do
@@ -107,6 +131,10 @@ fztype() {
 			mode="refresh"
 			shift
 			;;
+		-t | --type)
+			type_filter="$2"
+			shift 2
+			;;
 		--)
 			shift
 			break
@@ -117,8 +145,26 @@ fztype() {
 
 	term="${1:-}"
 	if [ -z "$term" ]; then
-		echo "Usage: fztype [-p|--prefix] [-r|--refresh] <command>" >&2
+		cat >&2 <<'EOF'
+Usage: fztype [OPTIONS] <command>
+
+Options:
+  -p, --prefix          Prefix fuzzy match (anchored at first character)
+  -r, --refresh         Bypass and rebuild the command cache
+  -t, --type TYPE       Filter by type: alias, function, builtin, keyword, file
+EOF
 		return 1
+	fi
+
+	# Validate type filter
+	if [ -n "$type_filter" ]; then
+		case "$type_filter" in
+		alias | function | builtin | keyword | file) ;;
+		*)
+			echo "fztype: invalid type '${type_filter}'. Valid: alias, function, builtin, keyword, file" >&2
+			return 1
+			;;
+		esac
 	fi
 
 	local CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
@@ -158,6 +204,7 @@ fztype() {
 		return 1
 	fi
 
+	local printed=0
 	for cmd in "${matches[@]}"; do
 		local cmd_type path
 		cmd_type=$(type -t "$cmd" 2>/dev/null)
@@ -165,18 +212,22 @@ fztype() {
 		if [ -z "$cmd_type" ] && alias "$cmd" &>/dev/null; then
 			cmd_type="alias"
 		fi
-		case "$cmd_type" in
-		alias) printf '%-30s %s\n' "$cmd" "[alias]" ;;
-		function) printf '%-30s %s\n' "$cmd" "[function]" ;;
-		builtin) printf '%-30s %s\n' "$cmd" "[builtin]" ;;
-		keyword) printf '%-30s %s\n' "$cmd" "[keyword]" ;;
-		file)
+		if [ -n "$type_filter" ] && [ "$cmd_type" != "$type_filter" ]; then
+			continue
+		fi
+		printed=1
+		if [ "$cmd_type" = "file" ]; then
 			path=$(type -p "$cmd" 2>/dev/null)
 			printf '%-30s %s\n' "$cmd" "${path:-[not found]}"
-			;;
-		*) printf '%-30s %s\n' "$cmd" "[${cmd_type:-unknown}]" ;;
-		esac
+		else
+			printf '%-30s %s\n' "$cmd" "[${cmd_type:-unknown}]"
+		fi
 	done
+
+	if ((printed == 0)); then
+		echo "fztype: no commands matching '${term}'" >&2
+		return 1
+	fi
 }
 
 # ------------------------------------------------------------------
