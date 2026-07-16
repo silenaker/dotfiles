@@ -13,15 +13,21 @@
 #   4.  _fzmatch no match (wrong order)
 #   5.  fztype no argument
 #   6.  fztype no match
-#   7.  fztype -p finds file command
-#   8.  fztype -p finds builtin
-#   9.  fztype -p finds alias
-#  10.  fztype -p fuzzy-match pyth3 → python3
-#  11.  fztype -r populates cache
-#  12.  fztype -r non-prefix fuzzy match
-#  13.  fztype (default) reads from cache
-#  14.  fztype (default) missing cache fallback
-#  15.  fztype (default) expired cache returns results
+#   7.  fztype -p -r mutually exclusive (prefix first)
+#   8.  fztype -r -p mutually exclusive (refresh first)
+#   9.  fztype -p finds file command
+#  10.  fztype -p finds builtin
+#  11.  fztype -p finds alias
+#  12.  fztype -p fuzzy-match pyth3 → python3
+#  13.  fztype -r populates cache
+#  14.  fztype -r non-prefix fuzzy match
+#  15.  fztype (default) reads from cache
+#  16.  fztype (default) missing cache fallback
+#  17.  fztype (default) expired cache returns results
+#  18.  fztype -t alias
+#  19.  fztype -p -t builtin
+#  20.  fztype -t invalid type
+#  21.  fztype -t file fuzzy
 set -euo pipefail
 
 source "$(dirname "$0")/helpers.sh"
@@ -96,6 +102,24 @@ if ! fztype "zzzNOSUCHCMDxxx" 2>/dev/null; then pass=$((pass + 1)); else
     echo "  FAIL: bogus cmd should fail" >&2
 fi
 result "fztype no match"
+
+# --- -p and -r mutually exclusive (prefix first) --------------------
+reset_cache
+check
+if ! fztype -p -r bash 2>/dev/null; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -p -r should be rejected" >&2
+fi
+result "fztype -p -r rejected"
+
+# --- -p and -r mutually exclusive (refresh first) -------------------
+reset_cache
+check
+if ! fztype -r -p bash 2>/dev/null; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    echo "  FAIL: -r -p should be rejected" >&2
+fi
+result "fztype -r -p rejected"
 
 # ------------------------------------------------------------------
 # fztype -p (prefix)

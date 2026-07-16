@@ -118,17 +118,27 @@ _fzcache_refresh() {
 #
 # All modes fuzzy-filter via _fzmatch (subsequence, order-preserving).
 fztype() {
-	local mode="default" term="" type_filter=""
+	local mode="default" term="" type_filter="" _prev_opt=""
 
 	# Parse flags
 	while [[ "${1:-}" == -* ]]; do
 		case "$1" in
 		-p | --prefix)
+			[ "$mode" = "refresh" ] && {
+				echo "fztype: options '$_prev_opt' and '$1' cannot be used together" >&2
+				return 1
+			}
 			mode="prefix"
+			_prev_opt="$1"
 			shift
 			;;
 		-r | --refresh)
+			[ "$mode" = "prefix" ] && {
+				echo "fztype: options '$_prev_opt' and '$1' cannot be used together" >&2
+				return 1
+			}
 			mode="refresh"
+			_prev_opt="$1"
 			shift
 			;;
 		-t | --type)
@@ -204,9 +214,8 @@ EOF
 		return 1
 	fi
 
-	local printed=0
+	local printed=0 cmd cmd_type path
 	for cmd in "${matches[@]}"; do
-		local cmd_type path
 		cmd_type=$(type -t "$cmd" 2>/dev/null)
 		# fallback: non-interactive shells may not report aliases via type -t
 		if [ -z "$cmd_type" ] && alias "$cmd" &>/dev/null; then
