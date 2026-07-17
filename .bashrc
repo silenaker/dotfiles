@@ -291,6 +291,123 @@ EOF
 	fi
 	_fztype_log "INFO" "printed $printed results"
 }
+
+# wman -- open web-based man page.
+# Usage: wman [-s <source>] [section] <name>
+#
+# Sources:
+#   man7 (default)  https://man7.org/linux/man-pages/
+#   arch            https://man.archlinux.org/
+#   ubuntu          https://manpages.ubuntu.com/
+#   debian          https://manpages.debian.org/
+#
+# Section auto-detection:
+#   wman 1 ls        → section=1, name=ls
+#   wman ls.1        → section=1, name=ls
+#   wman ls          → default section 1
+wman() {
+	local source="man7" name="" section="" url=""
+
+	# Parse options
+	while [[ "${1:-}" == -* ]]; do
+		case "$1" in
+		-h | --help)
+			cat >&2 <<'EOF'
+Usage: wman [-s source] [section] <name>
+
+Options:
+  -s, --source  SRC   Web source: man7 (default), arch, ubuntu, debian
+  -h, --help          Show this help message
+
+Examples:
+  wman ls                # open ls(1) on man7.org
+  wman 5 crontab         # open crontab(5) on man7.org
+  wman -s arch ls.1      # open ls(1) on man.archlinux.org
+EOF
+			return 0
+			;;
+		-s | --source)
+			source="$2"
+			shift 2
+			;;
+		--)
+			shift
+			break
+			;;
+		*) break ;;
+		esac
+	done
+
+	# Validate source early (catches -s with missing/invalid value)
+	case "$source" in
+	man7 | arch | archlinux | ubuntu | debian) ;;
+	*)
+		echo "wman: unknown source '${source}'. Valid: man7, arch, ubuntu, debian" >&2
+		return 1
+		;;
+	esac
+
+	# Argument parsing with section auto-detection
+	if [ $# -eq 0 ]; then
+		cat >&2 <<'EOF'
+Usage: wman [-s source] [section] <name>
+
+Options:
+  -s, --source  SRC   Web source: man7 (default), arch, ubuntu, debian
+  -h, --help          Show this help message
+
+Examples:
+  wman ls                # open ls(1) on man7.org
+  wman 5 crontab         # open crontab(5) on man7.org
+  wman -s arch ls.1      # open ls(1) on man.archlinux.org
+EOF
+		return 1
+	elif [ $# -eq 2 ] && [[ "$1" =~ ^[0-9]+[a-z]*$ ]]; then
+		# wman 1 ls
+		section="$1"
+		name="$2"
+	else
+		# wman ls or wman ls.1
+		name="$1"
+		if [[ "$name" =~ ^(.+)\.([0-9]+[a-z]*)$ ]]; then
+			name="${BASH_REMATCH[1]}"
+			section="${BASH_REMATCH[2]}"
+		else
+			section="1"
+		fi
+	fi
+
+	# Warn on extra arguments (likely user error)
+	if [ $# -gt 2 ]; then
+		echo "wman: ignoring extra arguments after '${name}'" >&2
+	elif [ $# -gt 1 ] && ! [[ "$1" =~ ^[0-9]+[a-z]*$ ]]; then
+		echo "wman: ignoring extra arguments after '${name}'" >&2
+	fi
+
+	# Resolve URL
+	case "$source" in
+	man7)
+		url="https://man7.org/linux/man-pages/man${section}/${name}.${section}.html"
+		;;
+	arch | archlinux)
+		url="https://man.archlinux.org/man/${name}.${section}"
+		;;
+	ubuntu)
+		url="https://manpages.ubuntu.com/manpages/en/man${section}/${name}.${section}.html"
+		;;
+	debian)
+		url="https://manpages.debian.org/${name}.${section}.en.html"
+		;;
+	esac
+
+	if ! command -v open &>/dev/null; then
+		echo "wman: 'open' command not found. Install it or set BROWSER." >&2
+		return 1
+	fi
+
+	open "$url"
+}
+
 # ------------------------------------------------------------------
 # Prompt
 # ------------------------------------------------------------------
