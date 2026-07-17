@@ -52,8 +52,8 @@ alias rm='rm -i'
 # Functions
 # ------------------------------------------------------------------
 
-# _fzmatch -- fuzzy match: all chars of $1 appear in $2 in order.
-_fzmatch() {
+# _fztype_match -- fuzzy match: all chars of $1 appear in $2 in order.
+_fztype_match() {
 	local pattern="$1" target="$2"
 	local i=0 j=0 plen=${#pattern} tlen=${#target}
 	while ((i < plen && j < tlen)); do
@@ -65,41 +65,79 @@ _fzmatch() {
 	((i == plen))
 }
 
-# _fzfilter -- fuzzy filter stdin lines against $1, appending matches to nameref $2.
-_fzfilter() {
+# _fztype_filter -- fuzzy filter stdin lines against $1, appending matches to nameref $2.
+_fztype_filter() {
 	local term="$1" cmd
 	local -n _result="$2"
 	while IFS= read -r cmd; do
-		_fzmatch "$term" "$cmd" && _result+=("$cmd")
+		_fztype_match "$term" "$cmd" && _result+=("$cmd")
 	done
 }
 
-# _fzcache_write -- atomically write $1 to the command cache in background.
-_fzcache_write() {
+# _fztype_cache_write -- atomically write $1 to the command cache in background.
+_fztype_cache_write() {
+	_fztype_log "INFO" "cache_write: spawning background write"
 	(
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
 		mkdir -p "$d"
+		_fztype_log_file "INFO" "cache_write: writing $(echo "$1" | wc -l) entries"
 		(
 			set -e
-			flock -n 3
+			flock -n 3 || {
+				_fztype_log_file "WARN" "cache_write: flock failed (contended)"
+				exit 0
+			}
 			printf "%s\n" "$1" >"$d/commands.tmp"
 			mv "$d/commands.tmp" "$d/commands"
-		) 3>"$d/.lock" &>/dev/null &
+			_fztype_log_file "INFO" "cache_write: done"
+		) 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
 	) &>/dev/null
 }
 
-# _fzcache_refresh -- regenerate the command cache from compgen in background.
-_fzcache_refresh() {
+# _fztype_cache_refresh -- regenerate the command cache from compgen in background.
+_fztype_cache_refresh() {
+	_fztype_log "INFO" "cache_refresh: spawning background refresh"
 	(
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
 		mkdir -p "$d"
 		(
 			set -e
-			flock -n 3
+			flock -n 3 || {
+				_fztype_log_file "WARN" "cache_refresh: flock failed (contended)"
+				exit 0
+			}
 			compgen -c | sort -u >"$d/commands.tmp"
 			mv "$d/commands.tmp" "$d/commands"
-		) 3>"$d/.lock" &>/dev/null &
+			_fztype_log_file "INFO" "cache_refresh: done ($(wc -l <"$d/commands") entries)"
+		) 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
 	) &>/dev/null
+}
+
+# _fztype_log -- conditionally log to stderr when FZTYPE_DEBUG is set.
+_fztype_log() {
+	[ -n "${FZTYPE_DEBUG:-}" ] || return 0
+	local level="$1" msg="$2" ts
+	ts=$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) || true
+	printf '[%s] [fztype] %-7s %s\n' "${ts:-n/a}" "$level" "$msg" >&2
+}
+
+# _fztype_log_file -- log to a file (for backgrounded subshells where stderr is captured).
+# WARN/ERROR always write to error.log; INFO writes to debug.log only when FZTYPE_DEBUG is set.
+_fztype_log_file() {
+	local level="$1" msg="$2"
+	local d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype" ts logfile
+	mkdir -p "$d"
+	ts=$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) || true
+	case "$level" in
+	WARN | ERROR)
+		logfile="$d/error.log"
+		;;
+	*)
+		[ -n "${FZTYPE_DEBUG:-}" ] || return 0
+		logfile="$d/debug.log"
+		;;
+	esac
+	printf '[%s] [fztype] %-7s %s\n' "${ts:-n/a}" "$level" "$msg" >>"$logfile"
 }
 
 # fztype -- fuzzy command lookup.
@@ -116,7 +154,7 @@ _fzcache_refresh() {
 #   -t         Filter output by command type: alias, function, builtin,
 #              keyword, or file.
 #
-# All modes fuzzy-filter via _fzmatch (subsequence, order-preserving).
+# All modes fuzzy-filter via _fztype_match (subsequence, order-preserving).
 fztype() {
 	local mode="default" term="" type_filter="" _prev_opt=""
 
@@ -177,18 +215,24 @@ EOF
 		esac
 	fi
 
+	_fztype_log "INFO" "mode=$mode term='$term' type_filter=${type_filter:-none}"
+
 	local CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
 	local CACHE_FILE="$CACHE_DIR/commands"
 	local matches=() raw
 
 	case "$mode" in
 	prefix)
-		_fzfilter "$term" matches < <(compgen -c "${term:0:1}" | sort -u)
+		_fztype_log "INFO" "prefix mode: filtering from compgen -c '${term:0:1}'"
+		_fztype_filter "$term" matches < <(compgen -c "${term:0:1}" | sort -u)
+		_fztype_log "INFO" "prefix mode: ${#matches[@]} matches"
 		;;
 	refresh)
+		_fztype_log "INFO" "refresh mode: running compgen -c (all commands)"
 		raw=$(compgen -c | sort -u)
-		_fzcache_write "$raw"
-		_fzfilter "$term" matches <<<"$raw"
+		_fztype_cache_write "$raw"
+		_fztype_filter "$term" matches <<<"$raw"
+		_fztype_log "INFO" "refresh mode: ${#matches[@]} matches"
 		;;
 	default)
 		if [ -s "$CACHE_FILE" ]; then
@@ -197,19 +241,26 @@ EOF
 			cache_mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
 			midnight_ts=$(date -d 'today 00:00' +%s 2>/dev/null || echo 0)
 			if [ "$cache_mtime" -lt "$midnight_ts" ] 2>/dev/null; then
-				_fzcache_refresh
+				_fztype_log "INFO" "default mode: cache expired (mtime=$cache_mtime < midnight=$midnight_ts), refreshing"
+				_fztype_cache_refresh
+			else
+				_fztype_log "INFO" "default mode: cache fresh (mtime=$cache_mtime)"
 			fi
-			_fzfilter "$term" matches <"$CACHE_FILE"
+			_fztype_filter "$term" matches <"$CACHE_FILE"
+			_fztype_log "INFO" "default mode: ${#matches[@]} matches from cache"
 		else
 			# No cache -- behave like refresh mode.
+			_fztype_log "INFO" "default mode: cache missing, falling back to compgen"
 			raw=$(compgen -c | sort -u)
-			_fzcache_write "$raw"
-			_fzfilter "$term" matches <<<"$raw"
+			_fztype_cache_write "$raw"
+			_fztype_filter "$term" matches <<<"$raw"
+			_fztype_log "INFO" "default mode: ${#matches[@]} matches (fallback)"
 		fi
 		;;
 	esac
 
 	if ((${#matches[@]} == 0)); then
+		_fztype_log "WARN" "no matches for term='$term'"
 		echo "fztype: no commands matching '${term}'" >&2
 		return 1
 	fi
@@ -234,11 +285,12 @@ EOF
 	done
 
 	if ((printed == 0)); then
+		_fztype_log "WARN" "type filter '$type_filter' excluded all ${#matches[@]} matches"
 		echo "fztype: no commands matching '${term}'" >&2
 		return 1
 	fi
+	_fztype_log "INFO" "printed $printed results"
 }
-
 # ------------------------------------------------------------------
 # Prompt
 # ------------------------------------------------------------------
