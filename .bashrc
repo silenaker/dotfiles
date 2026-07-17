@@ -81,7 +81,9 @@ _fztype_cache_write() {
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
 		mkdir -p "$d"
 		_fztype_log_file "INFO" "cache_write: writing $(echo "$1" | wc -l) entries"
-		(
+		export -f _fztype_log_file
+		export d
+		bash -c '
 			set -e
 			flock -n 3 || {
 				_fztype_log_file "WARN" "cache_write: flock failed (contended)"
@@ -90,7 +92,7 @@ _fztype_cache_write() {
 			printf "%s\n" "$1" >"$d/commands.tmp"
 			mv "$d/commands.tmp" "$d/commands"
 			_fztype_log_file "INFO" "cache_write: done"
-		) 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
+		' _ "$1" 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
 	) &>/dev/null
 }
 
@@ -100,7 +102,9 @@ _fztype_cache_refresh() {
 	(
 		d="${XDG_CACHE_HOME:-$HOME/.cache}/fztype"
 		mkdir -p "$d"
-		(
+		export -f _fztype_log_file
+		export d
+		bash -c '
 			set -e
 			flock -n 3 || {
 				_fztype_log_file "WARN" "cache_refresh: flock failed (contended)"
@@ -109,7 +113,7 @@ _fztype_cache_refresh() {
 			compgen -c | sort -u >"$d/commands.tmp"
 			mv "$d/commands.tmp" "$d/commands"
 			_fztype_log_file "INFO" "cache_refresh: done ($(wc -l <"$d/commands") entries)"
-		) 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
+		' 3>"$d/.lock" >/dev/null 2>>"$d/error.log" &
 	) &>/dev/null
 }
 
@@ -129,7 +133,7 @@ _fztype_log_file() {
 	mkdir -p "$d"
 	ts=$(date '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) || true
 	case "$level" in
-	WARN | ERROR)
+	ERROR)
 		logfile="$d/error.log"
 		;;
 	*)
@@ -275,7 +279,7 @@ EOF
 		if [ -n "$type_filter" ] && [ "$cmd_type" != "$type_filter" ]; then
 			continue
 		fi
-		printed=1
+		((printed++))
 		if [ "$cmd_type" = "file" ]; then
 			path=$(type -p "$cmd" 2>/dev/null)
 			printf '%-30s %s\n' "$cmd" "${path:-[not found]}"
