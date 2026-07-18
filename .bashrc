@@ -308,9 +308,10 @@ EOF
 # Section auto-detection:
 #   wman 1 ls        → section=1, name=ls
 #   wman ls.1        → section=1, name=ls
-#   wman ls          → default section 1
+#   wman ls          → probe sections 1-8, open first found
 wman() {
-	local source="man7" name="" section="" url=""
+	local source="man7" name="" section="" url="" manpath
+	local explicit_section=false
 
 	# Parse options
 	while [[ "${1:-}" == -* ]]; do
@@ -331,6 +332,10 @@ EOF
 			return 0
 			;;
 		-s | --source)
+			if [[ $# -lt 2 ]]; then
+				echo "wman: error: -s/--source requires an argument" >&2
+				return 1
+			fi
 			source="$2"
 			shift 2
 			;;
@@ -370,12 +375,14 @@ EOF
 		# wman 1 ls
 		section="$1"
 		name="$2"
+		explicit_section=true
 	else
 		# wman ls or wman ls.1
 		name="$1"
 		if [[ "$name" =~ ^(.+)\.([0-9]+[a-z]*)$ ]]; then
 			name="${BASH_REMATCH[1]}"
 			section="${BASH_REMATCH[2]}"
+			explicit_section=true
 		else
 			section="1"
 		fi
@@ -388,21 +395,57 @@ EOF
 		echo "wman: ignoring extra arguments after '${name}'" >&2
 	fi
 
-	# Resolve URL
-	case "$source" in
-	man7)
-		url="https://man7.org/linux/man-pages/man${section}/${name}.${section}.html"
-		;;
-	arch | archlinux)
-		url="https://man.archlinux.org/man/${name}.${section}"
-		;;
-	ubuntu)
-		url="https://manpages.ubuntu.com/manpages/en/man${section}/${name}.${section}.html"
-		;;
-	debian)
-		url="https://manpages.debian.org/${name}.${section}.en.html"
-		;;
-	esac
+	# -- URL builder --
+	_wman_url() {
+		local s="$1" n="$2"
+		case "$source" in
+		man7) echo "https://man7.org/linux/man-pages/man${s}/${n}.${s}.html" ;;
+		arch | archlinux) echo "https://man.archlinux.org/man/${n}.${s}" ;;
+		ubuntu) echo "https://manpages.ubuntu.com/manpages/en/man${s}/${n}.${s}.html" ;;
+		debian) echo "https://manpages.debian.org/${n}.${s}.en.html" ;;
+		esac
+	}
+
+	# Auto-detect section: try local man database first, then HTTP probe
+	if [[ $explicit_section != true ]]; then
+		local detected=""
+		# Tier 1: local man database (instant, no network)
+		if manpath=$(man -w "$name" 2>/dev/null); then
+			detected=$(echo "$manpath" | sed -n 's|.*/man\([0-9][a-z]*\)/.*|\1|p')
+		fi
+		if [[ -n "$detected" ]]; then
+			section="$detected"
+		else
+			# Tier 2: HTTP probe (covers uninstalled pages)
+			if command -v curl &>/dev/null; then
+				local found_section=""
+				for s in 1 2 3 4 5 6 7 8; do
+					local probe_url
+					probe_url=$(_wman_url "$s" "$name")
+					local http_code
+					http_code=$(curl -sI -L -o /dev/null --connect-timeout 5 --max-time 10 \
+						-w '%{http_code}' "$probe_url")
+					if [[ "$http_code" =~ ^[23] ]]; then
+						found_section="$s"
+						url="$probe_url"
+						break
+					fi
+				done
+				if [[ -z "$found_section" ]]; then
+					echo "wman: could not find '${name}' in any section (tried 1-8)" >&2
+					return 1
+				fi
+				section="$found_section"
+			else
+				echo "wman: warning: cannot detect section (no man/curl), trying section ${section}" >&2
+			fi
+		fi
+	fi
+
+	# Resolve URL (only needed when not already set by probe)
+	if [[ -z "$url" ]]; then
+		url=$(_wman_url "$section" "$name")
+	fi
 
 	if ! command -v open &>/dev/null; then
 		echo "wman: 'open' command not found. Install it or set BROWSER." >&2
