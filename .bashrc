@@ -32,6 +32,22 @@ case ":${PATH}:" in
 esac
 
 # ------------------------------------------------------------------
+# External tools
+# ------------------------------------------------------------------
+
+# zoxide — smarter cd command
+# https://github.com/ajeetdsouza/zoxide
+if command -v zoxide &>/dev/null; then
+    eval "$(zoxide init bash)"
+fi
+
+# mise — runtime version manager
+# https://mise.jdx.dev
+if command -v mise &>/dev/null; then
+    eval "$(mise activate bash)"
+fi
+
+# ------------------------------------------------------------------
 # Aliases
 # ------------------------------------------------------------------
 alias ll='ls -alF'
