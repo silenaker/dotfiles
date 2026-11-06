@@ -53,16 +53,9 @@ fi
 alias ll='ls -alhF'
 alias la='ls -A'
 alias l='ls -CF'
-alias ..='cd ..'
-alias ...='cd ../..'
 alias grep='grep --color=auto'
 alias egrep='egrep --color=auto'
 alias fgrep='fgrep --color=auto'
-
-# Safety nets
-alias cp='cp -i'
-alias mv='mv -i'
-alias rm='rm -i'
 
 # ------------------------------------------------------------------
 # Functions
